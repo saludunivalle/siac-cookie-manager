@@ -26,9 +26,10 @@
    - `GOOGLE_SERVICE_ACCOUNT_KEY`: Contenido completo del JSON
 
 ### 4. Actualizar Google Apps Script (2 min)
-1. Reemplazar código de `searchState.gs` con `gas-searchState.gs`
-2. Cambiar `SHEET_ID` por tu ID real
-3. Guardar
+1. Abrir tu proyecto de Google Apps Script
+2. Reemplazar TODO el contenido de `searchState.gs` con el código de `gas-searchState.gs`
+3. Cambiar `const SHEET_ID = 'TU_GOOGLE_SHEET_ID_AQUÍ';` por tu ID real
+4. Guardar el proyecto
 
 ### 5. Probar (3 min)
 1. GitHub → Actions → "Extract Univalle Cookies" → Run workflow
@@ -38,8 +39,21 @@
 ## ✅ ¡Listo!
 Ahora se actualizará automáticamente cada día a las 6:00 PM (Colombia).
 
+## 🧹 Opcional: Limpiar Archivos
+
+Revisa `FILES_TO_DELETE.md` para eliminar archivos innecesarios del proyecto.
+
 ---
 
-**💡 Tip**: Si necesitas cambiar el horario, edita el `cron` en `.github/workflows/extract-cookies.yml`
+## 💡 Tips y Solución de Problemas
 
-**🆘 Problemas**: Revisar el archivo `setup-guide.md` para solución detallada de problemas. 
+### Error de Dependencies Lock File
+- Si ves error sobre `package-lock.json`, es normal 
+- El proyecto usa `npm install` en lugar de `npm ci` para evitar este problema
+
+### Verificar que Todo Funciona
+1. **GitHub Actions**: Ve a tu repo → Actions → última ejecución debe ser ✅
+2. **Google Sheets**: Debe tener datos en fila 2 con timestamp reciente  
+3. **Google Apps Script**: Ejecuta función `testCookies()` para verificar
+
+**🆘 Problemas**: Revisar `setup-guide.md` para solución detallada de problemas. 
