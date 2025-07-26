@@ -1,0 +1,33 @@
+name: Extract Univalle Cookies
+
+on:
+  schedule:
+    # Se ejecuta todos los días a las 2:00 AM UTC (6 PM hora de Colombia)
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Permite ejecución manual
+
+jobs:
+  extract-cookies:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Extract cookies and update Google Sheets
+      env:
+        GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+        GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+      run: npm run extract
+      
+    - name: Log completion
+      run: echo "Cookie extraction completed at $(date)" 
