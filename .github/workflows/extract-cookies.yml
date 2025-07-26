@@ -2,8 +2,10 @@ name: 🍪 Extracción Automática de Cookies Univalle
 
 on:
   schedule:
-    # Todos los días a las 11:00 PM UTC (6:00 PM Colombia)
-    - cron: '0 23 * * *'
+    # Múltiples horarios para mayor confiabilidad
+    - cron: '0 23 * * *'  # 11:00 PM UTC (6:00 PM Colombia) 
+    - cron: '0 11 * * *'  # 11:00 AM UTC (6:00 AM Colombia)
+    - cron: '0 17 * * *'  # 5:00 PM UTC (12:00 PM Colombia)
   
   workflow_dispatch:
     inputs:
@@ -54,12 +56,15 @@ jobs:
           npm run extract
         fi
 
-    - name: 📊 Mostrar resumen
+    - name: 📊 Mostrar resumen detallado
       if: always()
       run: |
         echo "📈 Resumen de ejecución:"
         echo "- Fecha: $(date)"
         echo "- Estado: ${{ job.status }}"
+        echo "- Trigger: ${{ github.event_name }}"
+        echo "- Repo: ${{ github.repository }}"
+        echo "- Run: ${{ github.run_number }}"
 
     - name: 📤 Subir logs de debug
       if: failure() && github.event.inputs.debug_mode == 'true'
@@ -72,11 +77,20 @@ jobs:
           *.html
         retention-days: 7
 
-    - name: 🚨 Notificar si falló
+    - name: 🚨 Análisis de fallo
       if: failure()
       run: |
         echo "❌ La extracción falló"
-        echo "🔧 Recomendaciones:"
-        echo "  1. Ejecutar manualmente con debug activado"
-        echo "  2. Revisar logs en los artifacts"
-        echo "  3. Verificar si la página de Univalle cambió" 
+        echo "🔧 Pasos de diagnóstico:"
+        echo "  1. Ejecutar: npm run test-quick"
+        echo "  2. Ejecutar: npm run test-frames" 
+        echo "  3. Revisar artifacts de debug"
+        echo "  4. Verificar cambios en Univalle"
+        echo "  5. Comprobar variables de entorno"
+
+    - name: ✅ Confirmar éxito
+      if: success()
+      run: |
+        echo "🎉 Extracción exitosa"
+        echo "📊 Datos actualizados en Google Sheets"
+        echo "⏰ Próxima ejecución programada en 24h" 

@@ -8,13 +8,14 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const CONFIG = {
     URL: 'https://proxse26.univalle.edu.co/asignacion/vin_asignacion.php3',
     CEDULA_TEST: '1112966620',
+    PASSWORD_TEST: '', // Se configurará desde variables de entorno
     TIMEOUT_LONG: 30000,
     TIMEOUT_SHORT: 10000,
     RETRY_ATTEMPTS: 3,
     WAIT_BETWEEN_RETRIES: 3000
 };
 
-// Múltiples selectores posibles
+// Múltiples selectores posibles para cédula
 const CEDULA_SELECTORS = [
     'input[name="cedula"]',
     'input[type="text"]',
@@ -27,6 +28,18 @@ const CEDULA_SELECTORS = [
     'input'
 ];
 
+// Selectores para campo de contraseña
+const PASSWORD_SELECTORS = [
+    'input[name="password"]',
+    'input[name="clave"]',
+    'input[name="pass"]',
+    'input[type="password"]',
+    'input[placeholder*="contraseña" i]',
+    'input[placeholder*="password" i]',
+    'input[placeholder*="clave" i]',
+    'form input[type="password"]'
+];
+
 const SUBMIT_SELECTORS = [
     'img[src*="imprimir_.gif"]',
     'img[alt*="Imprimir" i]',
@@ -34,7 +47,8 @@ const SUBMIT_SELECTORS = [
     'input[type="submit"]',
     'button[type="submit"]',
     'form button',
-    'input[type="button"]'
+    'input[type="button"]',
+    'input[type="image"]'
 ];
 
 async function extractCookies() {
@@ -172,13 +186,28 @@ async function extractCookies() {
                  inputCount: form.querySelectorAll('input').length
              }));
              
-             return {
-                 title: document.title,
-                 url: window.location.href,
-                 inputs: inputs,
-                 forms: forms,
-                 bodyText: document.body.innerText.substring(0, 200)
-             };
+                                  // Buscar también imágenes/botones
+                     const images = Array.from(document.querySelectorAll('img')).map(img => ({
+                         src: img.src,
+                         alt: img.alt,
+                         onclick: img.onclick?.toString().substring(0, 50)
+                     }));
+                     
+                     const buttons = Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"], input[type="image"]')).map(btn => ({
+                         type: btn.type,
+                         value: btn.value,
+                         onclick: btn.onclick?.toString().substring(0, 50)
+                     }));
+                     
+                     return {
+                         title: document.title,
+                         url: window.location.href,
+                         inputs: inputs,
+                         forms: forms,
+                         images: images,
+                         buttons: buttons,
+                         bodyText: document.body.innerText.substring(0, 200)
+                     };
          });
 
          console.log('📋 Frame analizado:', JSON.stringify(frameInfo, null, 2));
@@ -254,67 +283,158 @@ async function extractCookies() {
          console.log('✏️ Llenando campo de cédula en el frame...');
          await targetFrame.type(cedulaSelector, CONFIG.CEDULA_TEST, { delay: 100 });
          await delay(1000); // Pausa para procesar
+         
+         // 🔐 BUSCAR Y LLENAR CAMPO DE CONTRASEÑA
+         console.log('🔐 Buscando campo de contraseña...');
+         let passwordSelector = null;
+         
+         for (const selector of PASSWORD_SELECTORS) {
+             try {
+                 console.log(`   🔍 Probando selector de contraseña: ${selector}`);
+                 await targetFrame.waitForSelector(selector, { timeout: 3000, visible: true });
+                 const element = await targetFrame.$(selector);
+                 if (element) {
+                     const isVisible = await targetFrame.evaluate((sel) => {
+                         const el = document.querySelector(sel);
+                         if (!el) return false;
+                         const style = window.getComputedStyle(el);
+                         return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetHeight > 0;
+                     }, selector);
+                     
+                     if (isVisible) {
+                         console.log(`✅ Campo de contraseña encontrado con: ${selector}`);
+                         passwordSelector = selector;
+                         break;
+                     }
+                 }
+             } catch (e) {
+                 console.log(`   ❌ Selector de contraseña ${selector} falló: ${e.message}`);
+                 continue;
+             }
+         }
+         
+         if (passwordSelector) {
+             // Usar contraseña de variable de entorno o valor por defecto
+             const password = process.env.UNIVALLE_PASSWORD || CONFIG.PASSWORD_TEST || '';
+             if (password) {
+                 console.log('✏️ Llenando campo de contraseña...');
+                 await targetFrame.type(passwordSelector, password, { delay: 100 });
+                 await delay(1000);
+             } else {
+                 console.log('⚠️ No se encontró contraseña en variables de entorno (UNIVALLE_PASSWORD)');
+                 console.log('💡 Para obtener PHPSESSID, configura la contraseña en las variables de entorno');
+             }
+         } else {
+             console.log('❌ No se encontró campo de contraseña');
+             console.log('🔍 Esto puede explicar por qué no se genera PHPSESSID');
+         }
 
-         // 🚀 ENVIAR FORMULARIO CON JAVASCRIPT (SOLUCIÓN ANTI-FRAME)
-         console.log('🚀 Enviando formulario directamente con JavaScript...');
+         // 🖨️ BUSCAR Y HACER CLICK EN IMAGEN DE IMPRIMIR EN TODOS LOS FRAMES
+         console.log('🖨️ Buscando imagen de imprimir en todos los frames...');
          
          try {
-             // Método 1: Buscar formulario y enviarlo
-             const formSubmitted = await targetFrame.evaluate((cedulaSelector) => {
-                 const cedulaInput = document.querySelector(cedulaSelector);
-                 if (cedulaInput && cedulaInput.form) {
-                     console.log('📋 Formulario encontrado, enviando...');
-                     cedulaInput.form.submit();
-                     return true;
-                 }
-                 return false;
-             }, cedulaSelector);
-
-             if (formSubmitted) {
-                 console.log('✅ Formulario enviado exitosamente');
+             // Selectores específicos para la imagen de imprimir
+             const PRINT_IMAGE_SELECTORS = [
+                 'img[src*="imprimir_.gif"]',
+                 'img[alt*="Imprimir" i]',
+                 'img[src*="imprimir"]',
+                 'input[type="image"][src*="imprimir"]',
+                 'img[title*="Imprimir" i]',
+                 'a img[src*="imprimir"]'
+             ];
+             
+             let printImageFound = false;
+             const allFrames = page.frames();
+             console.log(`🔍 Buscando imagen en ${allFrames.length} frames disponibles...`);
+             
+             // Buscar en todos los frames, no solo en el frame de cédula
+             for (const frame of allFrames) {
+                 const frameUrl = frame.url();
+                 console.log(`   🖼️ Analizando frame: ${frameUrl}`);
                  
-                 // Esperar navegación después del envío
-                 try {
-                     await page.waitForNavigation({ 
-                         waitUntil: 'networkidle2', 
-                         timeout: CONFIG.TIMEOUT_SHORT 
-                     });
-                     console.log('✅ Navegación completada');
-                 } catch (navError) {
-                     console.log('⚠️ No hubo navegación, continuando...');
+                 for (const selector of PRINT_IMAGE_SELECTORS) {
+                     try {
+                         console.log(`     🔍 Probando selector: ${selector}`);
+                         await frame.waitForSelector(selector, { timeout: 2000, visible: true });
+                         const element = await frame.$(selector);
+                         if (element) {
+                             console.log(`✅ ¡Imagen de imprimir encontrada en frame ${frameUrl}!`);
+                             console.log(`✅ Selector exitoso: ${selector}`);
+                             
+                             // Hacer click específicamente en la imagen de imprimir
+                             console.log('🖨️ Haciendo click en imagen de imprimir...');
+                             await frame.click(selector);
+                             printImageFound = true;
+                             
+                             // Esperar navegación específica para PHPSESSID
+                             console.log('⏳ Esperando respuesta del servidor para generar PHPSESSID...');
+                             try {
+                                 await page.waitForNavigation({ 
+                                     waitUntil: 'networkidle2', 
+                                     timeout: 15000 
+                                 });
+                                 console.log('✅ Navegación completada - PHPSESSID debería estar disponible');
+                             } catch (navError) {
+                                 console.log('⚠️ Sin navegación visible, pero procesando respuesta...');
+                                 // Esperar tiempo para que el servidor procese la solicitud
+                                 await delay(5000);
+                             }
+                             
+                             break;
+                         }
+                     } catch (e) {
+                         // No mostrar cada fallo individual para no saturar logs
+                         continue;
+                     }
                  }
-             } else {
-                 // Método 2: Buscar botón de envío y hacer clic con JavaScript
-                 console.log('⚠️ No se encontró formulario, buscando botón...');
                  
+                 if (printImageFound) {
+                     break; // Salir del bucle de frames si ya encontramos la imagen
+                 }
+             }
+             
+             if (!printImageFound) {
+                 console.log('⚠️ No se encontró imagen de imprimir específica');
+                 console.log('🔄 Intentando métodos alternativos...');
+                 
+                 // Fallback: buscar botones de envío generales
+                 let buttonClicked = false;
                  for (const selector of SUBMIT_SELECTORS) {
                      try {
-                         const clicked = await targetFrame.evaluate((buttonSelector) => {
-                             const button = document.querySelector(buttonSelector);
-                             if (button) {
-                                 button.click();
-                                 return true;
-                             }
-                             return false;
-                         }, selector);
-                         
-                         if (clicked) {
-                             console.log(`✅ Botón clickeado con JavaScript: ${selector}`);
+                         const element = await targetFrame.$(selector);
+                         if (element) {
+                             console.log(`🔘 Haciendo click en botón alternativo: ${selector}`);
+                             await targetFrame.click(selector);
+                             buttonClicked = true;
+                             
+                             // Esperar respuesta
+                             await delay(3000);
                              break;
                          }
                      } catch (e) {
                          continue;
                      }
                  }
+                 
+                 if (!buttonClicked) {
+                     // Último recurso: envío de formulario
+                     console.log('📋 Último recurso: enviando formulario directamente...');
+                     await targetFrame.evaluate((cedulaSelector) => {
+                         const cedulaInput = document.querySelector(cedulaSelector);
+                         if (cedulaInput && cedulaInput.form) {
+                             cedulaInput.form.submit();
+                         }
+                     }, cedulaSelector);
+                 }
              }
-             
-             // Esperar procesamiento
-             await delay(5000);
              
          } catch (submitError) {
              console.log('❌ Error al enviar formulario:', submitError.message);
              throw new Error(`No se pudo enviar el formulario: ${submitError.message}`);
          }
+             
+         // Esperar procesamiento adicional para PHPSESSID
+         await delay(8000);
 
         // 🍪 EXTRAER COOKIES
         console.log('🍪 Extrayendo cookies...');
@@ -327,6 +447,11 @@ async function extractCookies() {
         
         const phpsessid = cookies.find(cookie => cookie.name === 'PHPSESSID')?.value;
         const asigacad = cookies.find(cookie => cookie.name === 'asigacad')?.value;
+
+        // Logging detallado de cookies encontradas
+        console.log('🔍 Análisis detallado de cookies:');
+        console.log(`   PHPSESSID: ${phpsessid ? '✅ Encontrada' : '❌ No encontrada'}`);
+        console.log(`   asigacad: ${asigacad ? '✅ Encontrada' : '❌ No encontrada'}`);
 
         if (!phpsessid && !asigacad) {
             console.log('⚠️ No se encontraron cookies específicas, pero extracción continuó');
@@ -391,9 +516,13 @@ async function updateGoogleSheets(phpsessid, asigacad) {
         const sheets = google.sheets({ version: 'v4', auth });
         const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
 
-        // Preparar datos
+        // Preparar datos (manejar valores null/undefined)
         const timestamp = new Date().toISOString();
-        const values = [[timestamp, phpsessid, asigacad]];
+        const values = [[
+            timestamp, 
+            phpsessid || '', // Vacío si no existe
+            asigacad || ''   // Vacío si no existe
+        ]];
 
         // Verificar si existe una hoja llamada 'Siac Cookies', si no la crea
         const sheetName = 'Siac Cookies';

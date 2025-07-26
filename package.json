@@ -8,7 +8,8 @@
     "test": "node test-extraction.js",
     "test-page": "node test-univalle-page.js",
     "test-quick": "node test-quick.js",
-    "test-frames": "node test-frame-wait.js"
+    "test-frames": "node test-frame-wait.js",
+    "monitor": "node monitor-cookies.js"
   },
   "dependencies": {
     "googleapis": "^128.0.0",
