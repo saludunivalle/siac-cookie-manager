@@ -11,15 +11,15 @@
 7. Haz clic en **Create Key** > **JSON**
 8. Descarga el archivo JSON (lo necesitarás para GitHub Secrets)
 
-## Paso 2: Crear Google Sheets
+## Paso 2: Configurar Google Sheets Existente
 
-1. Ve a [Google Sheets](https://sheets.google.com)
-2. Crea una nueva hoja llamada "Univalle Cookies"
-3. En la primera fila agrega los encabezados:
+1. Abre tu Google Sheet "Asignaciones_Academicas"
+2. Crea una nueva hoja llamada **exactamente** "Siac Cookies"
+3. En la hoja "Siac Cookies", agrega los encabezados:
    - A1: `timestamp`
    - B1: `PHPSESSID`
    - C1: `asigacad`
-4. Copia el ID de la hoja (está en la URL: `https://docs.google.com/spreadsheets/d/1VPqOgVDhT41p6kyuEqXxuwqYi1zbEi5P1ulG5E9Zzgg/edit`)
+4. Copia el ID de la hoja (ver guía detallada en `COMO_CONFIGURAR_SHEET_ID.md`)
 5. Comparte la hoja con el email del service account (con permisos de editor)
 
 ## Paso 3: Configurar GitHub Repository

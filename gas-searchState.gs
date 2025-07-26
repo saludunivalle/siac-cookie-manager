@@ -44,10 +44,10 @@ function extraerDatosDocenteUnivalle(cedula = "1112966620", idPeriod = 48) {
  */
 function getCookiesFromSheet() {
   try {
-    const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('cookies');
+    const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName('Siac Cookies');
     
     if (!sheet) {
-      throw new Error('No se encontró la hoja "cookies" en el Google Sheet');
+      throw new Error('No se encontró la hoja "Siac Cookies" en el Google Sheet');
     }
 
     // Obtener la última fila con datos (fila 2, ya que fila 1 son encabezados)

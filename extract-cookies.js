@@ -91,8 +91,8 @@ async function updateGoogleSheets(phpsessid, asigacad) {
         const timestamp = new Date().toISOString();
         const values = [[timestamp, phpsessid, asigacad]];
 
-        // Verificar si existe una hoja llamada 'cookies', si no la crea
-        const sheetName = 'cookies';
+        // Verificar si existe una hoja llamada 'Siac Cookies', si no la crea
+        const sheetName = 'Siac Cookies';
         
         try {
             await sheets.spreadsheets.values.get({

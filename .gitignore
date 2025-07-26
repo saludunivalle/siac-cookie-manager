@@ -12,7 +12,6 @@ yarn-error.log*
 .env.production.local
 
 # Service account keys (security)
-*.json
 service-account*.json
 google-credentials*.json
 
