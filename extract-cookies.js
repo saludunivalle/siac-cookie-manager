@@ -81,165 +81,186 @@ async function extractCookies() {
         page.on('console', msg => console.log('🖥️ Browser:', msg.text()));
         page.on('pageerror', error => console.log('❌ Page Error:', error.message));
         
-        // 🌐 NAVEGACIÓN CON REINTENTOS
-        let navigationSuccess = false;
-        for (let attempt = 1; attempt <= CONFIG.RETRY_ATTEMPTS; attempt++) {
-            try {
-                console.log(`📄 Intento ${attempt}: Navegando a la página...`);
-                
-                const response = await page.goto(CONFIG.URL, {
-                    waitUntil: ['networkidle2', 'domcontentloaded'],
-                    timeout: CONFIG.TIMEOUT_LONG
-                });
+                 // 🌐 NAVEGACIÓN CON REINTENTOS
+         let navigationSuccess = false;
+         for (let attempt = 1; attempt <= CONFIG.RETRY_ATTEMPTS; attempt++) {
+             try {
+                 console.log(`📄 Intento ${attempt}: Navegando a la página...`);
+                 
+                 const response = await page.goto(CONFIG.URL, {
+                     waitUntil: ['networkidle2', 'domcontentloaded'],
+                     timeout: CONFIG.TIMEOUT_LONG
+                 });
 
-                console.log(`✅ Respuesta: ${response.status()}`);
-                
-                if (response.status() === 200) {
-                    // Esperar JavaScript adicional
-                    await page.waitForTimeout(5000);
-                    navigationSuccess = true;
-                    break;
-                }
-            } catch (error) {
-                console.log(`⚠️ Intento ${attempt} falló:`, error.message);
-                if (attempt < CONFIG.RETRY_ATTEMPTS) {
-                    await page.waitForTimeout(CONFIG.WAIT_BETWEEN_RETRIES);
-                }
-            }
-        }
+                 console.log(`✅ Respuesta: ${response.status()}`);
+                 
+                 if (response.status() === 200) {
+                     // Esperar JavaScript adicional y frames
+                     await page.waitForTimeout(8000);
+                     navigationSuccess = true;
+                     break;
+                 }
+             } catch (error) {
+                 console.log(`⚠️ Intento ${attempt} falló:`, error.message);
+                 if (attempt < CONFIG.RETRY_ATTEMPTS) {
+                     await page.waitForTimeout(CONFIG.WAIT_BETWEEN_RETRIES);
+                 }
+             }
+         }
 
-        if (!navigationSuccess) {
-            throw new Error('No se pudo cargar la página después de varios intentos');
-        }
+         if (!navigationSuccess) {
+             throw new Error('No se pudo cargar la página después de varios intentos');
+         }
 
-        // 🔍 ANÁLISIS DE FRAMES
-        console.log('🔍 Analizando estructura de frames...');
-        
-        // Esperar a que se carguen todos los frames
-        await page.waitForTimeout(3000);
-        
-        const frames = page.frames();
-        console.log(`🖼️ Total de frames encontrados: ${frames.length}`);
-        
-        // Analizar cada frame
-        let targetFrame = null;
-        for (let i = 0; i < frames.length; i++) {
-            const frame = frames[i];
-            console.log(`📄 Frame ${i}: ${frame.url()}`);
-            
-            try {
-                // Analizar contenido del frame
-                const frameInfo = await frame.evaluate(() => {
-                    const inputs = Array.from(document.querySelectorAll('input')).map(input => ({
-                        type: input.type,
-                        name: input.name,
-                        id: input.id,
-                        placeholder: input.placeholder
-                    }));
-                    
-                    return {
-                        title: document.title,
-                        url: window.location.href,
-                        inputCount: inputs.length,
-                        inputs: inputs,
-                        bodyLength: document.body.innerHTML.length,
-                        hasCedulaInput: inputs.some(input => input.name === 'cedula')
-                    };
-                });
-                
-                console.log(`📊 Frame ${i} info:`, JSON.stringify(frameInfo, null, 2));
-                
-                // Si encontramos el frame con el input de cédula
-                if (frameInfo.hasCedulaInput && frame.url().includes('vin_docente.php3')) {
-                    console.log(`✅ Frame objetivo encontrado: ${frame.url()}`);
-                    targetFrame = frame;
-                    break;
-                }
-            } catch (error) {
-                console.log(`⚠️ Error analizando frame ${i}:`, error.message);
-            }
-        }
+         // 🖼️ DETECTAR Y MANEJAR FRAMES
+         console.log('🔍 Analizando estructura de frames...');
+         const frames = page.frames();
+         console.log(`📋 Total frames encontrados: ${frames.length}`);
+         
+         let targetFrame = page.mainFrame(); // Por defecto, usar frame principal
+         
+         // Buscar frame que contenga el formulario
+         for (const frame of frames) {
+             const frameUrl = frame.url();
+             console.log(`   🖼️ Frame: ${frameUrl}`);
+             
+             if (frameUrl.includes('vin_docente.php3') || frameUrl.includes('asignacion')) {
+                 console.log(`✅ Frame objetivo encontrado: ${frameUrl}`);
+                 targetFrame = frame;
+                 break;
+             }
+         }
+         
+         console.log(`🎯 Trabajando en frame: ${targetFrame.url()}`)
 
-        if (!targetFrame) {
-            console.log('❌ No se encontró frame con formulario, intentando acceso directo...');
-            // Estrategia alternativa: ir directamente al frame
-            await page.goto('https://proxse26.univalle.edu.co/asignacion/vin_docente.php3', {
-                waitUntil: 'networkidle2',
-                timeout: CONFIG.TIMEOUT_LONG
-            });
-            targetFrame = page.mainFrame();
-        }
+                 // 🔍 ANÁLISIS DEL FRAME OBJETIVO
+         console.log('🔍 Analizando contenido del frame...');
+         
+         const frameInfo = await targetFrame.evaluate(() => {
+             const inputs = Array.from(document.querySelectorAll('input')).map(input => ({
+                 type: input.type,
+                 name: input.name,
+                 id: input.id,
+                 placeholder: input.placeholder,
+                 visible: window.getComputedStyle(input).display !== 'none'
+             }));
+             
+             const forms = Array.from(document.querySelectorAll('form')).map(form => ({
+                 action: form.action,
+                 method: form.method,
+                 inputCount: form.querySelectorAll('input').length
+             }));
+             
+             return {
+                 title: document.title,
+                 url: window.location.href,
+                 inputs: inputs,
+                 forms: forms,
+                 bodyText: document.body.innerText.substring(0, 200)
+             };
+         });
 
-        // 📝 BUSCAR Y LLENAR FORMULARIO EN EL FRAME CORRECTO
-        console.log('🔍 Trabajando con el frame objetivo...');
-        let cedulaInput = null;
-        
-        for (const selector of CEDULA_SELECTORS) {
-            try {
-                await targetFrame.waitForSelector(selector, { timeout: 3000, visible: true });
-                cedulaInput = await targetFrame.$(selector);
-                if (cedulaInput) {
-                    console.log(`✅ Campo de cédula encontrado en frame con: ${selector}`);
-                    break;
-                }
-            } catch (e) {
-                console.log(`   ❌ Selector ${selector} falló en frame`);
-                continue;
-            }
-        }
+         console.log('📋 Frame analizado:', JSON.stringify(frameInfo, null, 2));
 
-        if (!cedulaInput) {
-            // Mostrar todos los inputs disponibles en el frame
-            const allInputs = await targetFrame.evaluate(() => {
-                return Array.from(document.querySelectorAll('input, textarea')).map(el => ({
-                    tag: el.tagName,
-                    type: el.type,
-                    name: el.name,
-                    id: el.id,
-                    className: el.className
-                }));
-            });
-            console.log('📋 Todos los inputs disponibles en frame:', allInputs);
-            throw new Error('No se encontró campo de cédula en el frame');
-        }
+                 // 📝 BUSCAR CAMPO DE CÉDULA EN EL FRAME
+         console.log('🔍 Buscando campo de cédula en el frame...');
+         let cedulaSelector = null;
+         
+         for (const selector of CEDULA_SELECTORS) {
+             try {
+                 await targetFrame.waitForSelector(selector, { timeout: 3000, visible: true });
+                 const element = await targetFrame.$(selector);
+                 if (element) {
+                     console.log(`✅ Campo de cédula encontrado con: ${selector}`);
+                     cedulaSelector = selector;
+                     break;
+                 }
+             } catch (e) {
+                 console.log(`   ❌ Selector ${selector} falló`);
+                 continue;
+             }
+         }
 
-        // ✏️ LLENAR CÉDULA CON SIMULACIÓN HUMANA
-        console.log('✏️ Llenando campo de cédula en frame...');
-        await cedulaInput.click({ clickCount: 3 }); // Seleccionar todo
-        await page.waitForTimeout(500); // Pausa humana
-        await cedulaInput.type(CONFIG.CEDULA_TEST, { delay: 100 }); // Tipeo lento
+         if (!cedulaSelector) {
+             // Si no encuentra input, mostrar todos los disponibles
+             const allInputs = await targetFrame.evaluate(() => {
+                 return Array.from(document.querySelectorAll('input, textarea')).map(el => ({
+                     tag: el.tagName,
+                     type: el.type,
+                     name: el.name,
+                     id: el.id,
+                     className: el.className
+                 }));
+             });
+             console.log('📋 Todos los inputs disponibles en frame:', allInputs);
+             throw new Error('No se encontró campo de cédula con ningún selector');
+         }
 
-        // 🖱️ BUSCAR BOTÓN DE ENVÍO EN EL FRAME
-        console.log('🖱️ Buscando botón de imprimir en frame...');
-        let submitButton = null;
-        
-        for (const selector of SUBMIT_SELECTORS) {
-            try {
-                submitButton = await targetFrame.$(selector);
-                if (submitButton) {
-                    console.log(`✅ Botón encontrado en frame con: ${selector}`);
-                    break;
-                }
-            } catch (e) {
-                continue;
-            }
-        }
+                 // ✏️ LLENAR CÉDULA EN EL FRAME
+         console.log('✏️ Llenando campo de cédula en el frame...');
+         await targetFrame.type(cedulaSelector, CONFIG.CEDULA_TEST, { delay: 100 });
+         await page.waitForTimeout(1000); // Pausa para procesar
 
-        if (submitButton) {
-            console.log('🖱️ Haciendo clic en el botón del frame...');
-            try {
-                // Para frames, usamos click directo y esperamos
-                await submitButton.click();
-                await page.waitForTimeout(5000); // Esperar procesamiento
-            } catch (clickError) {
-                console.log('⚠️ Error en clic, continuando...');
-                await page.waitForTimeout(3000);
-            }
-        } else {
-            console.log('⚠️ Botón no encontrado en frame, intentando Enter...');
-            await targetFrame.keyboard.press('Enter');
-            await page.waitForTimeout(5000);
-        }
+         // 🚀 ENVIAR FORMULARIO CON JAVASCRIPT (SOLUCIÓN ANTI-FRAME)
+         console.log('🚀 Enviando formulario directamente con JavaScript...');
+         
+         try {
+             // Método 1: Buscar formulario y enviarlo
+             const formSubmitted = await targetFrame.evaluate((cedulaSelector) => {
+                 const cedulaInput = document.querySelector(cedulaSelector);
+                 if (cedulaInput && cedulaInput.form) {
+                     console.log('📋 Formulario encontrado, enviando...');
+                     cedulaInput.form.submit();
+                     return true;
+                 }
+                 return false;
+             }, cedulaSelector);
+
+             if (formSubmitted) {
+                 console.log('✅ Formulario enviado exitosamente');
+                 
+                 // Esperar navegación después del envío
+                 try {
+                     await page.waitForNavigation({ 
+                         waitUntil: 'networkidle2', 
+                         timeout: CONFIG.TIMEOUT_SHORT 
+                     });
+                     console.log('✅ Navegación completada');
+                 } catch (navError) {
+                     console.log('⚠️ No hubo navegación, continuando...');
+                 }
+             } else {
+                 // Método 2: Buscar botón de envío y hacer clic con JavaScript
+                 console.log('⚠️ No se encontró formulario, buscando botón...');
+                 
+                 for (const selector of SUBMIT_SELECTORS) {
+                     try {
+                         const clicked = await targetFrame.evaluate((buttonSelector) => {
+                             const button = document.querySelector(buttonSelector);
+                             if (button) {
+                                 button.click();
+                                 return true;
+                             }
+                             return false;
+                         }, selector);
+                         
+                         if (clicked) {
+                             console.log(`✅ Botón clickeado con JavaScript: ${selector}`);
+                             break;
+                         }
+                     } catch (e) {
+                         continue;
+                     }
+                 }
+             }
+             
+             // Esperar procesamiento
+             await page.waitForTimeout(5000);
+             
+         } catch (submitError) {
+             console.log('❌ Error al enviar formulario:', submitError.message);
+             throw new Error(`No se pudo enviar el formulario: ${submitError.message}`);
+         }
 
         // 🍪 EXTRAER COOKIES
         console.log('🍪 Extrayendo cookies...');
