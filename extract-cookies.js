@@ -1,9 +1,44 @@
 const puppeteer = require('puppeteer');
 const { google } = require('googleapis');
 
+// Configuración robusta
+const CONFIG = {
+    URL: 'https://proxse26.univalle.edu.co/asignacion/vin_asignacion.php3',
+    CEDULA_TEST: '1112966620',
+    TIMEOUT_LONG: 30000,
+    TIMEOUT_SHORT: 10000,
+    RETRY_ATTEMPTS: 3,
+    WAIT_BETWEEN_RETRIES: 3000
+};
+
+// Múltiples selectores posibles
+const CEDULA_SELECTORS = [
+    'input[name="cedula"]',
+    'input[type="text"]',
+    'input[placeholder*="cedula" i]',
+    'input[placeholder*="documento" i]',
+    'input.cedula',
+    'input#cedula',
+    'form input[type="text"]:first-of-type',
+    'form input:first-of-type',
+    'input'
+];
+
+const SUBMIT_SELECTORS = [
+    'img[src*="imprimir_.gif"]',
+    'img[alt*="Imprimir" i]',
+    'input[type="submit"][value*="Imprimir" i]',
+    'input[type="submit"]',
+    'button[type="submit"]',
+    'form button',
+    'input[type="button"]'
+];
+
 async function extractCookies() {
+    console.log('🚀 Iniciando extracción de cookies...');
+    
     const browser = await puppeteer.launch({
-        headless: "new", // Usar el nuevo modo headless
+        headless: "new",
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -13,87 +48,213 @@ async function extractCookies() {
             '--no-zygote',
             '--disable-gpu',
             '--disable-web-security',
-            '--disable-features=site-per-process'
+            '--disable-features=VizDisplayCompositor',
+            '--disable-blink-features=AutomationControlled',
+            '--disable-extensions'
         ]
     });
 
     try {
-        console.log('🚀 Iniciando extracción de cookies...');
         const page = await browser.newPage();
         
-        // Navegar a la página de asignación
-        console.log('📄 Navegando a la página de Univalle...');
-        await page.goto('https://proxse26.univalle.edu.co/asignacion/vin_asignacion.php3', {
-            waitUntil: 'networkidle2',
-            timeout: 30000
+        // 🎭 ANTI-DETECCIÓN: Simular navegador real
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        await page.setViewport({ width: 1366, height: 768 });
+        
+        // Eliminar indicadores de automatización
+        await page.evaluateOnNewDocument(() => {
+            // Eliminar webdriver property
+            delete navigator.webdriver;
+            
+            // Simular plugins
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5],
+            });
+            
+            // Simular languages
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['es-ES', 'es', 'en'],
+            });
+        });
+        
+        // Logs para debugging
+        page.on('console', msg => console.log('🖥️ Browser:', msg.text()));
+        page.on('pageerror', error => console.log('❌ Page Error:', error.message));
+        
+        // 🌐 NAVEGACIÓN CON REINTENTOS
+        let navigationSuccess = false;
+        for (let attempt = 1; attempt <= CONFIG.RETRY_ATTEMPTS; attempt++) {
+            try {
+                console.log(`📄 Intento ${attempt}: Navegando a la página...`);
+                
+                const response = await page.goto(CONFIG.URL, {
+                    waitUntil: ['networkidle2', 'domcontentloaded'],
+                    timeout: CONFIG.TIMEOUT_LONG
+                });
+
+                console.log(`✅ Respuesta: ${response.status()}`);
+                
+                if (response.status() === 200) {
+                    // Esperar JavaScript adicional
+                    await page.waitForTimeout(5000);
+                    navigationSuccess = true;
+                    break;
+                }
+            } catch (error) {
+                console.log(`⚠️ Intento ${attempt} falló:`, error.message);
+                if (attempt < CONFIG.RETRY_ATTEMPTS) {
+                    await page.waitForTimeout(CONFIG.WAIT_BETWEEN_RETRIES);
+                }
+            }
+        }
+
+        if (!navigationSuccess) {
+            throw new Error('No se pudo cargar la página después de varios intentos');
+        }
+
+        // 🔍 ANÁLISIS DE LA PÁGINA
+        console.log('🔍 Analizando estructura de la página...');
+        
+        const pageInfo = await page.evaluate(() => {
+            const inputs = Array.from(document.querySelectorAll('input')).map(input => ({
+                type: input.type,
+                name: input.name,
+                id: input.id,
+                placeholder: input.placeholder,
+                visible: window.getComputedStyle(input).display !== 'none'
+            }));
+            
+            const images = Array.from(document.querySelectorAll('img')).map(img => ({
+                src: img.src,
+                alt: img.alt
+            }));
+            
+            return {
+                title: document.title,
+                url: window.location.href,
+                inputs: inputs,
+                images: images.filter(img => img.src.includes('imprimir') || img.alt.includes('Imprimir')),
+                bodyText: document.body.innerText.substring(0, 200)
+            };
         });
 
-        // Esperar a que cargue el formulario - probando múltiples selectores
-        console.log('⏳ Esperando a que cargue el formulario...');
+        console.log('📋 Página analizada:', JSON.stringify(pageInfo, null, 2));
+
+        // 📝 BUSCAR CAMPO DE CÉDULA CON MÚLTIPLES ESTRATEGIAS
+        console.log('🔍 Buscando campo de cédula...');
+        let cedulaInput = null;
         
-        // Intentar diferentes selectores para el campo de cédula
-        let cedulaInput;
-        try {
-            await page.waitForSelector('input[name="cedula"]', { timeout: 5000 });
-            cedulaInput = await page.$('input[name="cedula"]');
-        } catch {
+        for (const selector of CEDULA_SELECTORS) {
             try {
-                await page.waitForSelector('input[type="text"]', { timeout: 5000 });
-                cedulaInput = await page.$('input[type="text"]');
-            } catch {
-                // Buscar cualquier input que pueda ser para cédula
-                await page.waitForSelector('input', { timeout: 5000 });
-                cedulaInput = await page.$('input');
+                await page.waitForSelector(selector, { timeout: 3000, visible: true });
+                cedulaInput = await page.$(selector);
+                if (cedulaInput) {
+                    console.log(`✅ Campo de cédula encontrado con: ${selector}`);
+                    break;
+                }
+            } catch (e) {
+                console.log(`   ❌ Selector ${selector} falló`);
+                continue;
             }
         }
 
         if (!cedulaInput) {
-            throw new Error('No se pudo encontrar el campo de cédula en la página');
+            // Si no encuentra input, mostrar todos los disponibles
+            const allInputs = await page.evaluate(() => {
+                return Array.from(document.querySelectorAll('input, textarea')).map(el => ({
+                    tag: el.tagName,
+                    type: el.type,
+                    name: el.name,
+                    id: el.id,
+                    className: el.className
+                }));
+            });
+            console.log('📋 Todos los inputs disponibles:', allInputs);
+            throw new Error('No se encontró campo de cédula con ningún selector');
         }
 
-        // Llenar el campo de cédula con un valor de prueba
+        // ✏️ LLENAR CÉDULA CON SIMULACIÓN HUMANA
         console.log('✏️ Llenando campo de cédula...');
-        await cedulaInput.click();
-        await cedulaInput.type('1112966620');
+        await cedulaInput.click({ clickCount: 3 }); // Seleccionar todo
+        await page.waitForTimeout(500); // Pausa humana
+        await cedulaInput.type(CONFIG.CEDULA_TEST, { delay: 100 }); // Tipeo lento
 
-        // Buscar y hacer clic en el botón de imprimir (imagen específica)
+        // 🖱️ BUSCAR BOTÓN DE ENVÍO
         console.log('🖱️ Buscando botón de imprimir...');
-        const printButton = await page.$('img[src*="imprimir_.gif"], img[alt*="Imprimir"], input[type="submit"][value*="Imprimir"], button[onclick*="imprimir"]');
+        let submitButton = null;
         
-        if (printButton) {
-            console.log('✅ Encontrado botón de imprimir, haciendo clic...');
-            await printButton.click();
-            await page.waitForTimeout(5000); // Esperar más tiempo a que se procese
-        } else {
-            console.log('⚠️ No se encontró botón de imprimir, intentando enviar formulario...');
-            // Intentar enviar el formulario de otra manera
+        for (const selector of SUBMIT_SELECTORS) {
             try {
-                await page.keyboard.press('Enter');
-                await page.waitForTimeout(3000);
+                submitButton = await page.$(selector);
+                if (submitButton) {
+                    console.log(`✅ Botón encontrado con: ${selector}`);
+                    break;
+                }
             } catch (e) {
-                console.log('⚠️ No se pudo enviar formulario, continuando con extracción de cookies...');
+                continue;
             }
         }
 
-        // Extraer cookies
+        if (submitButton) {
+            console.log('🖱️ Haciendo clic en el botón...');
+            try {
+                // Intentar con promise de navegación
+                await Promise.race([
+                    page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }),
+                    submitButton.click().then(() => page.waitForTimeout(3000))
+                ]);
+            } catch (navError) {
+                console.log('⚠️ Sin navegación, continuando...');
+                await page.waitForTimeout(5000);
+            }
+        } else {
+            console.log('⚠️ Botón no encontrado, intentando Enter...');
+            await page.keyboard.press('Enter');
+            await page.waitForTimeout(5000);
+        }
+
+        // 🍪 EXTRAER COOKIES
         console.log('🍪 Extrayendo cookies...');
         const cookies = await page.cookies();
+        
+        console.log(`📋 Total cookies encontradas: ${cookies.length}`);
+        cookies.forEach(cookie => {
+            console.log(`   ${cookie.name}: ${cookie.value.substring(0, 15)}...`);
+        });
         
         const phpsessid = cookies.find(cookie => cookie.name === 'PHPSESSID')?.value;
         const asigacad = cookies.find(cookie => cookie.name === 'asigacad')?.value;
 
-        if (!phpsessid || !asigacad) {
-            throw new Error('No se pudieron extraer las cookies necesarias');
+        if (!phpsessid && !asigacad) {
+            console.log('⚠️ No se encontraron cookies específicas, pero extracción continuó');
+            console.log('📋 Cookies disponibles:', cookies.map(c => c.name));
+            
+            // Buscar cookies similares
+            const similarCookies = cookies.filter(cookie => 
+                cookie.name.toLowerCase().includes('sess') || 
+                cookie.name.toLowerCase().includes('asig') ||
+                cookie.name.toLowerCase().includes('php')
+            );
+            
+            if (similarCookies.length > 0) {
+                console.log('🔍 Cookies similares encontradas:', similarCookies.map(c => c.name));
+            }
         }
 
-        console.log('✅ Cookies extraídas exitosamente');
-        console.log(`PHPSESSID: ${phpsessid.substring(0, 10)}...`);
-        console.log(`asigacad: ${asigacad.substring(0, 10)}...`);
+        const result = { phpsessid, asigacad };
+        
+        if (phpsessid || asigacad) {
+            console.log('✅ Cookies extraídas exitosamente');
+            if (phpsessid) console.log(`PHPSESSID: ${phpsessid.substring(0, 10)}...`);
+            if (asigacad) console.log(`asigacad: ${asigacad.substring(0, 10)}...`);
+            
+            // Actualizar Google Sheets
+            await updateGoogleSheets(phpsessid, asigacad);
+        } else {
+            console.log('⚠️ Cookies objetivo no encontradas, pero proceso completado');
+        }
 
-        // Actualizar Google Sheets
-        await updateGoogleSheets(phpsessid, asigacad);
-
-        return { phpsessid, asigacad };
+        return result;
 
     } catch (error) {
         console.error('❌ Error durante la extracción:', error);

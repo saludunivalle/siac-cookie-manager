@@ -5,17 +5,76 @@ async function testUnivallePage() {
     
     const browser = await puppeteer.launch({
         headless: false, // Mostrar navegador para debug
-        args: ['--no-sandbox']
+        devtools: true,  // Abrir DevTools
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-web-security',
+            '--disable-blink-features=AutomationControlled'
+        ]
     });
 
     try {
         const page = await browser.newPage();
         
-        console.log('📄 Navegando a la página...');
-        await page.goto('https://proxse26.univalle.edu.co/asignacion/vin_asignacion.php3', {
-            waitUntil: 'networkidle2',
-            timeout: 30000
+        // 🎭 ANTI-DETECCIÓN
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        await page.setViewport({ width: 1366, height: 768 });
+        
+        await page.evaluateOnNewDocument(() => {
+            delete navigator.webdriver;
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5],
+            });
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['es-ES', 'es', 'en'],
+            });
         });
+        
+        // Logs completos
+        page.on('console', msg => console.log('🖥️ BROWSER:', msg.text()));
+        page.on('pageerror', error => console.log('❌ PAGE ERROR:', error.message));
+        page.on('response', response => {
+            console.log(`📡 RESPONSE: ${response.url()} - ${response.status()}`);
+        });
+        page.on('requestfailed', request => {
+            console.log(`💥 REQUEST FAILED: ${request.url()} - ${request.failure()?.errorText}`);
+        });
+        
+        console.log('📄 Navegando a la página...');
+        
+        let attempts = 0;
+        let navigationSuccess = false;
+        
+        while (attempts < 3 && !navigationSuccess) {
+            attempts++;
+            try {
+                console.log(`📄 Intento ${attempts} de navegación...`);
+                
+                const response = await page.goto('https://proxse26.univalle.edu.co/asignacion/vin_asignacion.php3', {
+                    waitUntil: ['networkidle2', 'domcontentloaded'],
+                    timeout: 30000
+                });
+                
+                console.log(`✅ Respuesta HTTP: ${response.status()}`);
+                
+                if (response.status() === 200) {
+                    navigationSuccess = true;
+                    // Esperar JavaScript adicional
+                    console.log('⏳ Esperando JavaScript...');
+                    await page.waitForTimeout(8000);
+                }
+            } catch (navError) {
+                console.log(`❌ Error en intento ${attempts}:`, navError.message);
+                if (attempts < 3) {
+                    await page.waitForTimeout(3000);
+                }
+            }
+        }
+        
+        if (!navigationSuccess) {
+            throw new Error('No se pudo navegar a la página después de 3 intentos');
+        }
 
         console.log('📸 Tomando screenshot para diagnóstico...');
         await page.screenshot({ path: 'univalle-page-debug.png', fullPage: true });

@@ -71,25 +71,33 @@ siac-cookie-manager/
 
 ## 🧪 Diagnosticar Problemas con la Página
 
-**Si GitHub Actions sigue fallando**, ejecuta localmente:
+### Opción 1: Test Rápido (Recomendado)
+```bash
+npm run test-quick
+```
+- Abre navegador visible con DevTools
+- Muestra análisis detallado de la página
+- Mantiene navegador abierto para inspección manual
+- **Más fácil de usar**
+
+### Opción 2: Test Completo
 ```bash
 npm run test-page
 ```
-
-Esto:
-- Abrirá navegador visible 
-- Mostrará qué elementos encuentra en la página
-- Creará screenshot `univalle-page-debug.png`
-- Te dirá exactamente qué está pasando
+- Análisis exhaustivo de elementos
+- Screenshots automáticos
+- Logs detallados
 
 ## ⚡ Orden de ejecución rápida:
 
-1. **Subir archivos actualizados a GitHub** (especialmente `extract-cookies.js`)
+1. **Subir archivos actualizados a GitHub** (especialmente `extract-cookies.js` mejorado)
 2. **Crear hoja "Siac Cookies" en Google Sheets**  
 3. **Actualizar código en Google Apps Script**
 4. **Probar testCookies() en Google Apps Script**
-5. **Ejecutar GitHub Action manualmente**
-6. **Si falla**: Ejecutar `npm run test-page` para diagnóstico
+5. **Ejecutar GitHub Action manualmente** (con debug activado si es necesario)
+6. **Si falla**: 
+   - Ejecutar `npm run test-quick` localmente
+   - Revisar artifacts de debug en GitHub Actions
 
 ## 🍪 **IMPORTANTE: Las Cookies son Automáticas**
 

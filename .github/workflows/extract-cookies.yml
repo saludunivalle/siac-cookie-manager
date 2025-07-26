@@ -1,32 +1,82 @@
-name: Extract Univalle Cookies
+name: 🍪 Extracción Automática de Cookies Univalle
 
 on:
   schedule:
-    # Se ejecuta todos los días a las 2:00 AM UTC (6 PM hora de Colombia)
-    - cron: '0 2 * * *'
-  workflow_dispatch: # Permite ejecución manual
+    # Todos los días a las 11:00 PM UTC (6:00 PM Colombia)
+    - cron: '0 23 * * *'
+  
+  workflow_dispatch:
+    inputs:
+      debug_mode:
+        description: 'Activar modo debug detallado'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   extract-cookies:
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # Timeout de seguridad
     
     steps:
-    - name: Checkout repository
+    - name: 📥 Checkout código
       uses: actions/checkout@v4
-      
-    - name: Setup Node.js
+
+    - name: 🟢 Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-        
-    - name: Install dependencies
-      run: npm install
-      
-    - name: Extract cookies and update Google Sheets
+
+    - name: 📦 Instalar dependencias
+      run: |
+        npm install
+        # Instalar Chromium para GitHub Actions
+        npx puppeteer browsers install chrome
+
+    - name: 🔍 Verificar configuración
+      run: |
+        echo "🔧 Verificando variables de entorno..."
+        echo "GOOGLE_SHEETS_ID configurado: ${{ secrets.GOOGLE_SHEETS_ID != '' }}"
+        echo "SERVICE_ACCOUNT configurado: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY != '' }}"
+        echo "Modo debug: ${{ github.event.inputs.debug_mode }}"
+
+    - name: 🍪 Extraer cookies
       env:
         GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
         GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
-      run: npm run extract
-      
-    - name: Log completion
-      run: echo "Cookie extraction completed at $(date)" 
+        DEBUG_MODE: ${{ github.event.inputs.debug_mode }}
+      run: |
+        if [ "$DEBUG_MODE" = "true" ]; then
+          echo "🐛 Ejecutando en modo debug..."
+          npm run extract 2>&1 | tee extraction-log.txt
+        else
+          echo "🚀 Ejecutando extracción normal..."
+          npm run extract
+        fi
+
+    - name: 📊 Mostrar resumen
+      if: always()
+      run: |
+        echo "📈 Resumen de ejecución:"
+        echo "- Fecha: $(date)"
+        echo "- Estado: ${{ job.status }}"
+
+    - name: 📤 Subir logs de debug
+      if: failure() && github.event.inputs.debug_mode == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: debug-logs-${{ github.run_number }}
+        path: |
+          extraction-log.txt
+          *.png
+          *.html
+        retention-days: 7
+
+    - name: 🚨 Notificar si falló
+      if: failure()
+      run: |
+        echo "❌ La extracción falló"
+        echo "🔧 Recomendaciones:"
+        echo "  1. Ejecutar manualmente con debug activado"
+        echo "  2. Revisar logs en los artifacts"
+        echo "  3. Verificar si la página de Univalle cambió" 
