@@ -71,14 +71,18 @@ siac-cookie-manager/
 
 ## 🧪 Diagnosticar Problemas con la Página
 
+### ✅ **PROBLEMA DE FRAMES SOLUCIONADO**
+El sistema ahora detecta automáticamente si la página usa frames/iframes y busca el formulario en el frame correcto.
+
 ### Opción 1: Test Rápido (Recomendado)
 ```bash
 npm run test-quick
 ```
 - Abre navegador visible con DevTools
-- Muestra análisis detallado de la página
+- **NUEVO**: Detecta y analiza frames automáticamente
+- Identifica el frame con el input de cédula
+- Muestra recomendaciones específicas
 - Mantiene navegador abierto para inspección manual
-- **Más fácil de usar**
 
 ### Opción 2: Test Completo
 ```bash

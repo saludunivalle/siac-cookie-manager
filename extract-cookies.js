@@ -112,55 +112,85 @@ async function extractCookies() {
             throw new Error('No se pudo cargar la página después de varios intentos');
         }
 
-        // 🔍 ANÁLISIS DE LA PÁGINA
-        console.log('🔍 Analizando estructura de la página...');
+        // 🔍 ANÁLISIS DE FRAMES
+        console.log('🔍 Analizando estructura de frames...');
         
-        const pageInfo = await page.evaluate(() => {
-            const inputs = Array.from(document.querySelectorAll('input')).map(input => ({
-                type: input.type,
-                name: input.name,
-                id: input.id,
-                placeholder: input.placeholder,
-                visible: window.getComputedStyle(input).display !== 'none'
-            }));
+        // Esperar a que se carguen todos los frames
+        await page.waitForTimeout(3000);
+        
+        const frames = page.frames();
+        console.log(`🖼️ Total de frames encontrados: ${frames.length}`);
+        
+        // Analizar cada frame
+        let targetFrame = null;
+        for (let i = 0; i < frames.length; i++) {
+            const frame = frames[i];
+            console.log(`📄 Frame ${i}: ${frame.url()}`);
             
-            const images = Array.from(document.querySelectorAll('img')).map(img => ({
-                src: img.src,
-                alt: img.alt
-            }));
-            
-            return {
-                title: document.title,
-                url: window.location.href,
-                inputs: inputs,
-                images: images.filter(img => img.src.includes('imprimir') || img.alt.includes('Imprimir')),
-                bodyText: document.body.innerText.substring(0, 200)
-            };
-        });
+            try {
+                // Analizar contenido del frame
+                const frameInfo = await frame.evaluate(() => {
+                    const inputs = Array.from(document.querySelectorAll('input')).map(input => ({
+                        type: input.type,
+                        name: input.name,
+                        id: input.id,
+                        placeholder: input.placeholder
+                    }));
+                    
+                    return {
+                        title: document.title,
+                        url: window.location.href,
+                        inputCount: inputs.length,
+                        inputs: inputs,
+                        bodyLength: document.body.innerHTML.length,
+                        hasCedulaInput: inputs.some(input => input.name === 'cedula')
+                    };
+                });
+                
+                console.log(`📊 Frame ${i} info:`, JSON.stringify(frameInfo, null, 2));
+                
+                // Si encontramos el frame con el input de cédula
+                if (frameInfo.hasCedulaInput && frame.url().includes('vin_docente.php3')) {
+                    console.log(`✅ Frame objetivo encontrado: ${frame.url()}`);
+                    targetFrame = frame;
+                    break;
+                }
+            } catch (error) {
+                console.log(`⚠️ Error analizando frame ${i}:`, error.message);
+            }
+        }
 
-        console.log('📋 Página analizada:', JSON.stringify(pageInfo, null, 2));
+        if (!targetFrame) {
+            console.log('❌ No se encontró frame con formulario, intentando acceso directo...');
+            // Estrategia alternativa: ir directamente al frame
+            await page.goto('https://proxse26.univalle.edu.co/asignacion/vin_docente.php3', {
+                waitUntil: 'networkidle2',
+                timeout: CONFIG.TIMEOUT_LONG
+            });
+            targetFrame = page.mainFrame();
+        }
 
-        // 📝 BUSCAR CAMPO DE CÉDULA CON MÚLTIPLES ESTRATEGIAS
-        console.log('🔍 Buscando campo de cédula...');
+        // 📝 BUSCAR Y LLENAR FORMULARIO EN EL FRAME CORRECTO
+        console.log('🔍 Trabajando con el frame objetivo...');
         let cedulaInput = null;
         
         for (const selector of CEDULA_SELECTORS) {
             try {
-                await page.waitForSelector(selector, { timeout: 3000, visible: true });
-                cedulaInput = await page.$(selector);
+                await targetFrame.waitForSelector(selector, { timeout: 3000, visible: true });
+                cedulaInput = await targetFrame.$(selector);
                 if (cedulaInput) {
-                    console.log(`✅ Campo de cédula encontrado con: ${selector}`);
+                    console.log(`✅ Campo de cédula encontrado en frame con: ${selector}`);
                     break;
                 }
             } catch (e) {
-                console.log(`   ❌ Selector ${selector} falló`);
+                console.log(`   ❌ Selector ${selector} falló en frame`);
                 continue;
             }
         }
 
         if (!cedulaInput) {
-            // Si no encuentra input, mostrar todos los disponibles
-            const allInputs = await page.evaluate(() => {
+            // Mostrar todos los inputs disponibles en el frame
+            const allInputs = await targetFrame.evaluate(() => {
                 return Array.from(document.querySelectorAll('input, textarea')).map(el => ({
                     tag: el.tagName,
                     type: el.type,
@@ -169,25 +199,25 @@ async function extractCookies() {
                     className: el.className
                 }));
             });
-            console.log('📋 Todos los inputs disponibles:', allInputs);
-            throw new Error('No se encontró campo de cédula con ningún selector');
+            console.log('📋 Todos los inputs disponibles en frame:', allInputs);
+            throw new Error('No se encontró campo de cédula en el frame');
         }
 
         // ✏️ LLENAR CÉDULA CON SIMULACIÓN HUMANA
-        console.log('✏️ Llenando campo de cédula...');
+        console.log('✏️ Llenando campo de cédula en frame...');
         await cedulaInput.click({ clickCount: 3 }); // Seleccionar todo
         await page.waitForTimeout(500); // Pausa humana
         await cedulaInput.type(CONFIG.CEDULA_TEST, { delay: 100 }); // Tipeo lento
 
-        // 🖱️ BUSCAR BOTÓN DE ENVÍO
-        console.log('🖱️ Buscando botón de imprimir...');
+        // 🖱️ BUSCAR BOTÓN DE ENVÍO EN EL FRAME
+        console.log('🖱️ Buscando botón de imprimir en frame...');
         let submitButton = null;
         
         for (const selector of SUBMIT_SELECTORS) {
             try {
-                submitButton = await page.$(selector);
+                submitButton = await targetFrame.$(selector);
                 if (submitButton) {
-                    console.log(`✅ Botón encontrado con: ${selector}`);
+                    console.log(`✅ Botón encontrado en frame con: ${selector}`);
                     break;
                 }
             } catch (e) {
@@ -196,20 +226,18 @@ async function extractCookies() {
         }
 
         if (submitButton) {
-            console.log('🖱️ Haciendo clic en el botón...');
+            console.log('🖱️ Haciendo clic en el botón del frame...');
             try {
-                // Intentar con promise de navegación
-                await Promise.race([
-                    page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }),
-                    submitButton.click().then(() => page.waitForTimeout(3000))
-                ]);
-            } catch (navError) {
-                console.log('⚠️ Sin navegación, continuando...');
-                await page.waitForTimeout(5000);
+                // Para frames, usamos click directo y esperamos
+                await submitButton.click();
+                await page.waitForTimeout(5000); // Esperar procesamiento
+            } catch (clickError) {
+                console.log('⚠️ Error en clic, continuando...');
+                await page.waitForTimeout(3000);
             }
         } else {
-            console.log('⚠️ Botón no encontrado, intentando Enter...');
-            await page.keyboard.press('Enter');
+            console.log('⚠️ Botón no encontrado en frame, intentando Enter...');
+            await targetFrame.keyboard.press('Enter');
             await page.waitForTimeout(5000);
         }
 
