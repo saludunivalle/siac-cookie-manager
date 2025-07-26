@@ -7,11 +7,12 @@
     "extract": "node extract-cookies.js",
     "test": "node test-extraction.js",
     "test-page": "node test-univalle-page.js",
-    "test-quick": "node test-quick.js"
+    "test-quick": "node test-quick.js",
+    "test-frames": "node test-frame-wait.js"
   },
   "dependencies": {
-    "puppeteer": "^21.5.2",
-    "googleapis": "^128.0.0"
+    "googleapis": "^128.0.0",
+    "puppeteer": "^24.15.0"
   },
   "engines": {
     "node": ">=18"

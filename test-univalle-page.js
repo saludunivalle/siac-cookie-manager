@@ -1,5 +1,8 @@
 const puppeteer = require('puppeteer');
 
+// Función auxiliar para esperas (compatible con todas las versiones de Puppeteer)
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function testUnivallePage() {
     console.log('🧪 Probando la página de Univalle...');
     
@@ -62,12 +65,12 @@ async function testUnivallePage() {
                     navigationSuccess = true;
                     // Esperar JavaScript adicional
                     console.log('⏳ Esperando JavaScript...');
-                    await page.waitForTimeout(8000);
+                    await delay(8000);
                 }
             } catch (navError) {
                 console.log(`❌ Error en intento ${attempts}:`, navError.message);
                 if (attempts < 3) {
-                    await page.waitForTimeout(3000);
+                    await delay(3000);
                 }
             }
         }
@@ -168,7 +171,7 @@ async function testUnivallePage() {
             try {
                 const printButton = await page.$('img[src*="imprimir_.gif"], img[alt*="Imprimir"]');
                 await printButton.click();
-                await page.waitForTimeout(3000);
+                await delay(3000);
                 
                 const newCookies = await page.cookies();
                 console.log('\n🍪 Cookies después del clic:');

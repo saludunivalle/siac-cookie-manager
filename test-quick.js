@@ -1,5 +1,8 @@
 const puppeteer = require('puppeteer');
 
+// Función auxiliar para esperas (compatible con todas las versiones de Puppeteer)
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function quickTest() {
     console.log('🧪 Test rápido: ¿Se puede acceder a la página?');
     
@@ -48,7 +51,7 @@ async function quickTest() {
             console.log(`📄 URL final: ${page.url()}`);
 
             // Esperar a que cargue
-            await page.waitForTimeout(5000);
+            await delay(5000);
 
             // 🖼️ ANALIZAR FRAMES
             console.log('🔍 Analizando estructura de frames...');

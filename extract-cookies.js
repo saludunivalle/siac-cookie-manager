@@ -1,6 +1,9 @@
 const puppeteer = require('puppeteer');
 const { google } = require('googleapis');
 
+// Función auxiliar para esperas (compatible con todas las versiones de Puppeteer)
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 // Configuración robusta
 const CONFIG = {
     URL: 'https://proxse26.univalle.edu.co/asignacion/vin_asignacion.php3',
@@ -96,14 +99,14 @@ async function extractCookies() {
                  
                  if (response.status() === 200) {
                      // Esperar JavaScript adicional y frames
-                     await page.waitForTimeout(8000);
+                     await delay(8000);
                      navigationSuccess = true;
                      break;
                  }
              } catch (error) {
                  console.log(`⚠️ Intento ${attempt} falló:`, error.message);
                  if (attempt < CONFIG.RETRY_ATTEMPTS) {
-                     await page.waitForTimeout(CONFIG.WAIT_BETWEEN_RETRIES);
+                     await delay(CONFIG.WAIT_BETWEEN_RETRIES);
                  }
              }
          }
@@ -112,22 +115,40 @@ async function extractCookies() {
              throw new Error('No se pudo cargar la página después de varios intentos');
          }
 
-         // 🖼️ DETECTAR Y MANEJAR FRAMES
-         console.log('🔍 Analizando estructura de frames...');
-         const frames = page.frames();
-         console.log(`📋 Total frames encontrados: ${frames.length}`);
+         // 🖼️ DETECTAR Y MANEJAR FRAMES CON ESPERA ACTIVA
+         console.log('⏳ Esperando que aparezca el frame del formulario...');
          
-         let targetFrame = page.mainFrame(); // Por defecto, usar frame principal
+         let targetFrame = null;
          
-         // Buscar frame que contenga el formulario
-         for (const frame of frames) {
-             const frameUrl = frame.url();
-             console.log(`   🖼️ Frame: ${frameUrl}`);
+         try {
+             // Esperar activamente hasta que aparezca el frame específico (solución anti-race condition)
+             targetFrame = await page.waitForFrame(
+                 frame => frame.url().includes('vin_docente.php3'), 
+                 { timeout: 15000 } // Esperamos hasta 15 segundos
+             );
+             console.log(`✅ Frame objetivo encontrado y listo: ${targetFrame.url()}`);
+         } catch (waitError) {
+             console.log('⚠️ Frame específico no encontrado, analizando frames disponibles...');
              
-             if (frameUrl.includes('vin_docente.php3') || frameUrl.includes('asignacion')) {
-                 console.log(`✅ Frame objetivo encontrado: ${frameUrl}`);
-                 targetFrame = frame;
-                 break;
+             // Fallback: buscar en frames existentes
+             const frames = page.frames();
+             console.log(`📋 Total frames encontrados: ${frames.length}`);
+             
+             for (const frame of frames) {
+                 const frameUrl = frame.url();
+                 console.log(`   🖼️ Frame: ${frameUrl}`);
+                 
+                 if (frameUrl.includes('vin_docente.php3') || frameUrl.includes('asignacion')) {
+                     console.log(`✅ Frame objetivo encontrado en fallback: ${frameUrl}`);
+                     targetFrame = frame;
+                     break;
+                 }
+             }
+             
+             // Si aún no encuentra el frame, usar el frame principal
+             if (!targetFrame) {
+                 console.log('⚠️ Usando frame principal como último recurso');
+                 targetFrame = page.mainFrame();
              }
          }
          
@@ -162,44 +183,77 @@ async function extractCookies() {
 
          console.log('📋 Frame analizado:', JSON.stringify(frameInfo, null, 2));
 
-                 // 📝 BUSCAR CAMPO DE CÉDULA EN EL FRAME
+                 // 📝 BUSCAR CAMPO DE CÉDULA EN EL FRAME (con espera robusta)
          console.log('🔍 Buscando campo de cédula en el frame...');
+         
+         // Primero esperar a que el frame esté completamente cargado
+         await targetFrame.waitForLoadState?.('domcontentloaded').catch(() => {});
+         await delay(2000); // Pausa adicional para asegurar carga completa
+         
          let cedulaSelector = null;
          
          for (const selector of CEDULA_SELECTORS) {
              try {
-                 await targetFrame.waitForSelector(selector, { timeout: 3000, visible: true });
+                 console.log(`   🔍 Probando selector: ${selector}`);
+                 await targetFrame.waitForSelector(selector, { timeout: 5000, visible: true });
                  const element = await targetFrame.$(selector);
                  if (element) {
-                     console.log(`✅ Campo de cédula encontrado con: ${selector}`);
-                     cedulaSelector = selector;
-                     break;
+                     // Verificar que el elemento sea realmente interactuable
+                     const isVisible = await targetFrame.evaluate((sel) => {
+                         const el = document.querySelector(sel);
+                         if (!el) return false;
+                         const style = window.getComputedStyle(el);
+                         return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetHeight > 0;
+                     }, selector);
+                     
+                     if (isVisible) {
+                         console.log(`✅ Campo de cédula encontrado y visible con: ${selector}`);
+                         cedulaSelector = selector;
+                         break;
+                     }
                  }
              } catch (e) {
-                 console.log(`   ❌ Selector ${selector} falló`);
+                 console.log(`   ❌ Selector ${selector} falló: ${e.message}`);
                  continue;
              }
          }
 
          if (!cedulaSelector) {
-             // Si no encuentra input, mostrar todos los disponibles
+             // Si no encuentra input, mostrar todos los disponibles para debugging
+             console.log('❌ No se encontró campo de cédula con ningún selector');
+             console.log(`🎯 Frame actual: ${targetFrame.url()}`);
+             
              const allInputs = await targetFrame.evaluate(() => {
                  return Array.from(document.querySelectorAll('input, textarea')).map(el => ({
                      tag: el.tagName,
                      type: el.type,
                      name: el.name,
                      id: el.id,
-                     className: el.className
+                     className: el.className,
+                     placeholder: el.placeholder,
+                     visible: window.getComputedStyle(el).display !== 'none'
                  }));
              });
-             console.log('📋 Todos los inputs disponibles en frame:', allInputs);
-             throw new Error('No se encontró campo de cédula con ningún selector');
+             console.log('📋 Todos los inputs disponibles en frame:', JSON.stringify(allInputs, null, 2));
+             
+             // Información adicional para debugging
+             const frameContent = await targetFrame.evaluate(() => {
+                 return {
+                     title: document.title,
+                     url: window.location.href,
+                     bodyHTML: document.body.innerHTML.substring(0, 500),
+                     hasForm: document.querySelectorAll('form').length > 0
+                 };
+             });
+             console.log('📋 Contenido del frame:', JSON.stringify(frameContent, null, 2));
+             
+             throw new Error(`No se encontró campo de cédula con ningún selector en frame: ${targetFrame.url()}`);
          }
 
                  // ✏️ LLENAR CÉDULA EN EL FRAME
          console.log('✏️ Llenando campo de cédula en el frame...');
          await targetFrame.type(cedulaSelector, CONFIG.CEDULA_TEST, { delay: 100 });
-         await page.waitForTimeout(1000); // Pausa para procesar
+         await delay(1000); // Pausa para procesar
 
          // 🚀 ENVIAR FORMULARIO CON JAVASCRIPT (SOLUCIÓN ANTI-FRAME)
          console.log('🚀 Enviando formulario directamente con JavaScript...');
@@ -255,7 +309,7 @@ async function extractCookies() {
              }
              
              // Esperar procesamiento
-             await page.waitForTimeout(5000);
+             await delay(5000);
              
          } catch (submitError) {
              console.log('❌ Error al enviar formulario:', submitError.message);
@@ -299,6 +353,8 @@ async function extractCookies() {
             
             // Actualizar Google Sheets
             await updateGoogleSheets(phpsessid, asigacad);
+            
+            console.log('🎉 ¡Extracción de cookies completada exitosamente!');
         } else {
             console.log('⚠️ Cookies objetivo no encontradas, pero proceso completado');
         }
@@ -316,6 +372,14 @@ async function extractCookies() {
 async function updateGoogleSheets(phpsessid, asigacad) {
     try {
         console.log('📊 Actualizando Google Sheets...');
+        
+        // Verificar si las credenciales están configuradas
+        if (!process.env.GOOGLE_SERVICE_ACCOUNT_KEY || !process.env.GOOGLE_SHEETS_ID) {
+            console.log('⚠️ Variables de entorno de Google Sheets no configuradas. Saltando actualización.');
+            console.log('💡 Variables requeridas: GOOGLE_SERVICE_ACCOUNT_KEY, GOOGLE_SHEETS_ID');
+            console.log('💡 Para configurar Google Sheets, revisa el archivo setup-guide.md');
+            return;
+        }
         
         // Configurar autenticación con service account
         const serviceAccountKey = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);

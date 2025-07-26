@@ -1,8 +1,11 @@
-# 🖼️ Solución de Frames Implementada
+# 🖼️ Solución de Frames Implementada + Race Condition
 
-## 🚨 **Error Original Solucionado**
+## 🚨 **Errores Originales Solucionados**
 ```
 Error: Unsupported frame type
+❌ Selector input[name="cedula"] falló
+❌ Selector input[type="text"] falló
+❌ Race condition en carga de frames
 ```
 
 ## 🔧 **¿Qué era el Problema?**
@@ -11,7 +14,24 @@ La página de Univalle usa **frames antiguos** (posiblemente `<frameset>` o `<if
 
 ## ✅ **Solución Implementada**
 
-### 1. **Detección Automática de Frames**
+### 1. **Solución de Race Condition con page.waitForFrame()**
+```javascript
+// ANTES: Buscaba frames inmediatamente (race condition)
+const frames = page.frames();
+for (const frame of frames) {
+    if (frameUrl.includes('vin_docente.php3')) {
+        targetFrame = frame; // ❌ Podía no existir aún
+    }
+}
+
+// AHORA: Espera activamente hasta que el frame aparezca
+targetFrame = await page.waitForFrame(
+    frame => frame.url().includes('vin_docente.php3'), 
+    { timeout: 15000 } // ✅ Elimina race condition completamente
+);
+```
+
+### 2. **Detección Automática de Frames con Fallback**
 ```javascript
 // El sistema ahora detecta todos los frames
 const frames = page.frames();
@@ -56,7 +76,20 @@ const formSubmitted = await targetFrame.evaluate((cedulaSelector) => {
 
 ## 🧪 **Cómo Probar**
 
-### Test Local con Detección de Frames
+### Test Específico de Race Condition
+```bash
+npm run test-frames
+```
+
+**Output esperado:**
+```
+🎯 CONFIRMADO: Race condition solucionada con waitForFrame
+✅ Frame objetivo encontrado con waitForFrame: ...vin_docente.php3
+✅ Campo de cédula encontrado con: input[name="cedula"]
+🎉 ¡Test EXITOSO! El frame y el campo de cédula fueron encontrados correctamente
+```
+
+### Test Completo de Extracción
 ```bash
 npm run test-quick
 ```
@@ -94,9 +127,11 @@ npm run test-quick
 ## 🛠️ **Ventajas de Esta Solución**
 
 ### ✅ **Robustez**
+- **Elimina race conditions completamente** con `waitForFrame()`
 - Funciona con páginas con frames Y sin frames
 - Detecta automáticamente la estructura
 - Múltiples métodos de envío de formulario
+- Fallback inteligente si `waitForFrame()` falla
 
 ### ✅ **Compatibilidad**
 - Frames antiguos (`<frameset>`)
@@ -154,7 +189,30 @@ npm run test-quick
 ```
 
 Si ves:
-- `✅ Frame objetivo encontrado: ...vin_docente.php3`
-- `🎯 ¡Campo de cédula identificado!`
+- `✅ Frame objetivo encontrado y listo: ...vin_docente.php3`
+- `✅ Campo de cédula encontrado y visible con: input[name="cedula"]`
 
-¡La solución está funcionando correctamente! 🎉 
+¡La solución está funcionando correctamente! 🎉
+
+## 🚀 **Instrucciones Post-Corrección**
+
+### 1. **Probar la Corrección**
+```bash
+# Test específico de race condition
+npm run test-frames
+
+# Test completo de extracción
+npm run extract
+```
+
+### 2. **Si Aún Hay Errores**
+El nuevo código incluye debugging mejorado. Si falla, revisa:
+- **Frame URL encontrado**: ¿Contiene 'vin_docente.php3'?
+- **Inputs disponibles**: Lista completa en los logs
+- **Timing**: ¿El frame necesita más tiempo para cargar?
+
+### 3. **Ajustar Timeout si es Necesario**
+Si la página es muy lenta, aumenta el timeout:
+```javascript
+{ timeout: 20000 } // De 15000 a 20000ms
+``` 
