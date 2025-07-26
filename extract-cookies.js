@@ -3,7 +3,7 @@ const { google } = require('googleapis');
 
 async function extractCookies() {
     const browser = await puppeteer.launch({
-        headless: true,
+        headless: "new", // Usar el nuevo modo headless
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -11,7 +11,9 @@ async function extractCookies() {
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--disable-gpu'
+            '--disable-gpu',
+            '--disable-web-security',
+            '--disable-features=site-per-process'
         ]
     });
 
@@ -26,23 +28,51 @@ async function extractCookies() {
             timeout: 30000
         });
 
-        // Esperar a que cargue el formulario
+        // Esperar a que cargue el formulario - probando múltiples selectores
         console.log('⏳ Esperando a que cargue el formulario...');
-        await page.waitForSelector('input[name="cedula"]', { timeout: 10000 });
+        
+        // Intentar diferentes selectores para el campo de cédula
+        let cedulaInput;
+        try {
+            await page.waitForSelector('input[name="cedula"]', { timeout: 5000 });
+            cedulaInput = await page.$('input[name="cedula"]');
+        } catch {
+            try {
+                await page.waitForSelector('input[type="text"]', { timeout: 5000 });
+                cedulaInput = await page.$('input[type="text"]');
+            } catch {
+                // Buscar cualquier input que pueda ser para cédula
+                await page.waitForSelector('input', { timeout: 5000 });
+                cedulaInput = await page.$('input');
+            }
+        }
+
+        if (!cedulaInput) {
+            throw new Error('No se pudo encontrar el campo de cédula en la página');
+        }
 
         // Llenar el campo de cédula con un valor de prueba
         console.log('✏️ Llenando campo de cédula...');
-        await page.type('input[name="cedula"]', '1112966620');
+        await cedulaInput.click();
+        await cedulaInput.type('1112966620');
 
-        // Buscar y hacer clic en el botón de imprimir
+        // Buscar y hacer clic en el botón de imprimir (imagen específica)
         console.log('🖱️ Buscando botón de imprimir...');
-        const printButton = await page.$('input[type="submit"][value*="Imprimir"], button[onclick*="imprimir"], input[value*="imprimir"]');
+        const printButton = await page.$('img[src*="imprimir_.gif"], img[alt*="Imprimir"], input[type="submit"][value*="Imprimir"], button[onclick*="imprimir"]');
         
         if (printButton) {
+            console.log('✅ Encontrado botón de imprimir, haciendo clic...');
             await printButton.click();
-            await page.waitForTimeout(3000); // Esperar a que se procese
+            await page.waitForTimeout(5000); // Esperar más tiempo a que se procese
         } else {
-            console.log('⚠️ No se encontró botón de imprimir, continuando...');
+            console.log('⚠️ No se encontró botón de imprimir, intentando enviar formulario...');
+            // Intentar enviar el formulario de otra manera
+            try {
+                await page.keyboard.press('Enter');
+                await page.waitForTimeout(3000);
+            } catch (e) {
+                console.log('⚠️ No se pudo enviar formulario, continuando con extracción de cookies...');
+            }
         }
 
         // Extraer cookies

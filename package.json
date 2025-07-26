@@ -5,7 +5,8 @@
   "main": "extract-cookies.js",
   "scripts": {
     "extract": "node extract-cookies.js",
-    "test": "node test-extraction.js"
+    "test": "node test-extraction.js",
+    "test-page": "node test-univalle-page.js"
   },
   "dependencies": {
     "puppeteer": "^21.5.2",
